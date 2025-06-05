@@ -1,7 +1,7 @@
-
 from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import os
 
 app = Flask(__name__)
 
@@ -20,7 +20,6 @@ def harmonizacao():
             resultados.append(registro)
     return jsonify(resultados[:5])
 
-import os
-port = int(os.environ.get("PORT", 5000))
-app.run(host='0.0.0.0', port=port)
-
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
