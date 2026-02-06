@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% set active_page = "achados" %}
+
+{% block title %}Achados de Auditoria{% endblock %}
+{% block page_title %}Achados de Auditoria{% endblock %}
+
+{% block content %}
+<div class="filters-bar">
+    <select class="filter-select" id="filterNivel" onchange="loadAchados()">
+        <option value="">Todos os niveis</option>
+        <option value="tecnico">Tecnico</option>
+        <option value="administrativo">Administrativo</option>
+        <option value="regulatorio">Regulatorio</option>
+    </select>
+    <select class="filter-select" id="filterConfianca" onchange="loadAchados()">
+        <option value="">Todas as confiancas</option>
+        <option value="alta">Alta</option>
+        <option value="media">Media</option>
+        <option value="baixa">Baixa</option>
+    </select>
+    <select class="filter-select" id="filterAgente" onchange="loadAchados()">
+        <option value="">Todos os agentes</option>
+    </select>
+    <select class="filter-select" id="filterResolvido" onchange="loadAchados()">
+        <option value="">Resolvidos e pendentes</option>
+        <option value="false">Pendentes</option>
+        <option value="true">Resolvidos</option>
+    </select>
+</div>
+
+<div id="achadosList">
+    <div class="loading-overlay"><span class="spinner"></span> Carregando achados...</div>
+</div>
+
+<div class="pagination" id="pagination"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+
+async function loadAgentesFilter() {
+    try {
+        const data = await API.get('/api/v1/agentes/');
+        const sel = document.getElementById('filterAgente');
+        data.agentes.forEach(a => {
+            sel.insertAdjacentHTML('beforeend', `<option value="${a.tipo}">${a.tipo}</option>`);
+        });
+    } catch {}
+}
+
+async function loadAchados(page) {
+    currentPage = page || 1;
+    const nivel = document.getElementById('filterNivel').value;
+    const confianca = document.getElementById('filterConfianca').value;
+    const agente = document.getElementById('filterAgente').value;
+    const resolvido = document.getElementById('filterResolvido').value;
+
+    let url = `/api/v1/analise/achados?pagina=${currentPage}&por_pagina=15`;
+    if (nivel) url += `&nivel=${nivel}`;
+    if (confianca) url += `&confianca=${confianca}`;
+    if (agente) url += `&agente_tipo=${agente}`;
+    if (resolvido) url += `&resolvido=${resolvido}`;
+
+    // Check URL params
+    const params = new URLSearchParams(window.location.search);
+    const docId = params.get('documento_id');
+    if (docId) url += `&documento_id=${docId}`;
+
+    try {
+        const data = await API.get(url);
+        const container = document.getElementById('achadosList');
+
+        if (data.achados.length === 0) {
+            container.innerHTML = '<div class="empty-state"><h3>Nenhum achado encontrado</h3><p>Execute uma analise em um documento para gerar achados</p></div>';
+        } else {
+            container.innerHTML = data.achados.map(a => `
+                <div class="achado-card">
+                    <div class="achado-header">
+                        <div class="achado-title">${a.achado.titulo}</div>
+                        <div class="achado-badges">
+                            ${nivelBadge(a.classificacao.nivel)}
+                            ${confiancaBadge(a.classificacao.confianca)}
+                            <span class="badge badge-muted">${Math.round((a.classificacao.confianca_score || 0) * 100)}%</span>
+                        </div>
+                    </div>
+                    <div class="achado-body">${a.achado.descricao}</div>
+                    <div class="achado-meta">
+                        <span>Agente: <strong>${a.agente.tipo}</strong> v${a.agente.versao}</span>
+                        ${a.justificativa.regra_referencia ? `<span>Regra: <strong>${a.justificativa.regra_referencia}</strong></span>` : ''}
+                        ${a.justificativa.norma_ans ? `<span>Norma ANS: <strong>${a.justificativa.norma_ans}</strong></span>` : ''}
+                        ${a.impacto_financeiro.valor_estimado ? `<span>Impacto: <strong class="achado-impact">${formatMoney(a.impacto_financeiro.valor_estimado)}</strong> (${a.impacto_financeiro.tipo || ''})</span>` : ''}
+                        <span>Data: ${formatDate(a.criado_em)}</span>
+                    </div>
+                    ${a.justificativa.base_legal ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);font-style:italic;">${a.justificativa.base_legal}</div>` : ''}
+                    ${a.acao_recomendada ? `<div style="margin-top:8px;font-size:12px;color:var(--success);"><strong>Acao recomendada:</strong> ${a.acao_recomendada}</div>` : ''}
+                    ${a.achado.evidencia ? `<div style="margin-top:6px;font-size:11px;color:var(--text-muted);">Evidencia: ${a.achado.evidencia}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Pagination
+        const pag = data.paginacao;
+        document.getElementById('pagination').innerHTML = `
+            <button ${pag.pagina <= 1 ? 'disabled' : ''} onclick="loadAchados(${pag.pagina - 1})">&laquo; Anterior</button>
+            <span class="page-info">Pagina ${pag.pagina} de ${pag.paginas} (${pag.total} achados)</span>
+            <button ${pag.pagina >= pag.paginas ? 'disabled' : ''} onclick="loadAchados(${pag.pagina + 1})">Proxima &raquo;</button>
+        `;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadAgentesFilter();
+    loadAchados(1);
+});
+</script>
+{% endblock %}

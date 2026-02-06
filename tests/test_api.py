@@ -30,18 +30,33 @@ class TestAPIBase(unittest.TestCase):
 class TestHealthCheck(TestAPIBase):
     """Testes do health check."""
 
-    def test_index(self):
+    def test_index_html(self):
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertEqual(data["status"], "operacional")
-        self.assertIn("endpoints", data)
+        self.assertIn(b"AuditMed", resp.data)
 
     def test_health(self):
-        resp = self.client.get("/health")
+        resp = self.client.get("/api/health")
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.data)
         self.assertEqual(data["status"], "ok")
+
+    def test_upload_page(self):
+        resp = self.client.get("/upload")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Upload", resp.data)
+
+    def test_documentos_page(self):
+        resp = self.client.get("/documentos")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_achados_page(self):
+        resp = self.client.get("/achados")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_padroes_page(self):
+        resp = self.client.get("/padroes")
+        self.assertEqual(resp.status_code, 200)
 
 
 class TestIngestaoAPI(TestAPIBase):

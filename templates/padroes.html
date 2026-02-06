@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% set active_page = "padroes" %}
+
+{% block title %}Padroes{% endblock %}
+{% block page_title %}Padroes e Tendencias{% endblock %}
+
+{% block content %}
+<div class="cards-grid" id="impactCards" style="margin-bottom: 32px;">
+    <div class="card">
+        <div class="card-label">Glosas Recuperaveis</div>
+        <div class="card-value achado-impact" id="statRecuperavel">-</div>
+        <div class="card-sub">estimativa de recuperacao</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Total Glosado</div>
+        <div class="card-value" id="statGlosado">-</div>
+        <div class="card-sub">em glosas analisadas</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Padroes Recorrentes</div>
+        <div class="card-value" id="statPadroes">-</div>
+        <div class="card-sub">de glosa detectados</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Procs. Problematicos</div>
+        <div class="card-value" id="statProcs">-</div>
+        <div class="card-sub">com alta taxa de glosa</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <!-- Glosa Patterns -->
+    <div class="table-container">
+        <div class="table-header">
+            <h3>Padroes de Glosa Recorrente</h3>
+        </div>
+        <div id="glosaPatterns" style="padding: 16px;">
+            <div class="loading-overlay"><span class="spinner"></span> Carregando...</div>
+        </div>
+    </div>
+
+    <!-- Problematic Procedures -->
+    <div class="table-container">
+        <div class="table-header">
+            <h3>Procedimentos Problematicos</h3>
+        </div>
+        <div id="procPatterns" style="padding: 16px;">
+            <div class="loading-overlay"><span class="spinner"></span> Carregando...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Temporal Patterns -->
+<div class="table-container" style="margin-top: 24px;">
+    <div class="table-header">
+        <h3>Evolucao Mensal</h3>
+    </div>
+    <div id="temporalPatterns" style="padding: 16px;">
+        <div class="loading-overlay"><span class="spinner"></span> Carregando...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadPadroes() {
+    try {
+        const [glosas, procs, temporal, recuperaveis] = await Promise.all([
+            API.get('/api/v1/analise/padroes/glosa'),
+            API.get('/api/v1/analise/padroes/procedimentos'),
+            API.get('/api/v1/analise/padroes/temporal'),
+            API.get('/api/v1/analise/impacto/glosas-recuperaveis')
+        ]);
+
+        // Stats cards
+        document.getElementById('statRecuperavel').textContent = formatMoney(recuperaveis.valor_esperado_recuperacao || 0);
+        document.getElementById('statGlosado').textContent = formatMoney(recuperaveis.valor_total_glosado || 0);
+        document.getElementById('statPadroes').textContent = glosas.total_padroes || 0;
+        document.getElementById('statProcs').textContent = procs.total_procedimentos || 0;
+
+        // Glosa patterns
+        const glosaEl = document.getElementById('glosaPatterns');
+        if (glosas.padroes && glosas.padroes.length > 0) {
+            const maxFreq = Math.max(...glosas.padroes.map(p => p.frequencia));
+            glosaEl.innerHTML = '<div class="bar-chart">' + glosas.padroes.slice(0, 10).map(p => {
+                const pct = Math.max((p.frequencia / maxFreq) * 100, 8);
+                const fillClass = p.frequencia >= 5 ? 'fill-danger' : p.frequencia >= 3 ? 'fill-warning' : 'fill-info';
+                return `
+                    <div class="bar-row">
+                        <div class="bar-label" title="${p.descricao || p.codigo_motivo}">${p.codigo_motivo || 'N/D'}</div>
+                        <div class="bar-track">
+                            <div class="bar-fill ${fillClass}" style="width: ${pct}%">${p.frequencia}x</div>
+                        </div>
+                        <div class="bar-value">${formatMoney(p.valor_total_glosado)}</div>
+                    </div>`;
+            }).join('') + '</div>';
+
+            // Add recommendations
+            const recs = glosas.padroes.filter(p => p.recorrente).slice(0, 3);
+            if (recs.length > 0) {
+                glosaEl.innerHTML += '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">';
+                recs.forEach(r => {
+                    glosaEl.innerHTML += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+                        <span class="badge badge-danger" style="margin-right:6px;">${r.codigo_motivo}</span>
+                        ${r.recomendacao}
+                    </div>`;
+                });
+                glosaEl.innerHTML += '</div>';
+            }
+        } else {
+            glosaEl.innerHTML = '<div class="empty-state"><p>Nenhum padrao de glosa detectado ainda.<br>Faca upload de documentos com dados de glosa.</p></div>';
+        }
+
+        // Procedure patterns
+        const procEl = document.getElementById('procPatterns');
+        if (procs.procedimentos && procs.procedimentos.length > 0) {
+            procEl.innerHTML = '<table><thead><tr><th>TUSS</th><th>Taxa Glosa</th><th>Faturados</th><th>Glosados</th><th>Valor</th></tr></thead><tbody>';
+            procs.procedimentos.forEach(p => {
+                const critClass = p.criticidade === 'alta' ? 'danger' : p.criticidade === 'media' ? 'warning' : 'success';
+                procEl.innerHTML += `<tr>
+                    <td><strong>${p.codigo_tuss}</strong><br><span style="font-size:11px;color:var(--text-muted)">${p.descricao || ''}</span></td>
+                    <td><span class="badge badge-${critClass}">${p.taxa_glosa_pct}%</span></td>
+                    <td>${p.total_faturado}</td>
+                    <td>${p.total_glosas}</td>
+                    <td class="achado-impact">${formatMoney(p.valor_glosado_total)}</td>
+                </tr>`;
+            });
+            procEl.innerHTML += '</tbody></table>';
+        } else {
+            procEl.innerHTML = '<div class="empty-state"><p>Nenhum procedimento problematico detectado.</p></div>';
+        }
+
+        // Temporal patterns
+        const tempEl = document.getElementById('temporalPatterns');
+        if (temporal.meses && temporal.meses.length > 0) {
+            tempEl.innerHTML = '<table><thead><tr><th>Mes</th><th>Guias</th><th>Faturado</th><th>Glosado</th><th>Taxa</th></tr></thead><tbody>';
+            temporal.meses.forEach(m => {
+                const taxaClass = m.taxa_glosa_pct > 20 ? 'danger' : m.taxa_glosa_pct > 10 ? 'warning' : 'success';
+                tempEl.innerHTML += `<tr>
+                    <td><strong>${m.mes}</strong></td>
+                    <td>${m.total_guias}</td>
+                    <td>${formatMoney(m.valor_faturado)}</td>
+                    <td class="achado-impact">${formatMoney(m.valor_glosado)}</td>
+                    <td><span class="badge badge-${taxaClass}">${m.taxa_glosa_pct}%</span></td>
+                </tr>`;
+            });
+            tempEl.innerHTML += '</tbody></table>';
+        } else {
+            tempEl.innerHTML = '<div class="empty-state"><p>Dados temporais serao exibidos apos ingestao de guias com datas.</p></div>';
+        }
+
+    } catch (err) {
+        console.error('Error loading patterns:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadPadroes);
+</script>
+{% endblock %}

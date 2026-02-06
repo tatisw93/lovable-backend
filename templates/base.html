@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Auditoria Médica{% endblock %} - Saúde Suplementar</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">+</span>
+                <span class="logo-text">AuditMed</span>
+            </div>
+            <span class="logo-sub">Saude Suplementar</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">
+                <span class="nav-icon">&#9632;</span> Dashboard
+            </a></li>
+            <li><a href="/upload" class="{% if active_page == 'upload' %}active{% endif %}">
+                <span class="nav-icon">&#8593;</span> Upload
+            </a></li>
+            <li><a href="/documentos" class="{% if active_page == 'documentos' %}active{% endif %}">
+                <span class="nav-icon">&#9776;</span> Documentos
+            </a></li>
+            <li><a href="/achados" class="{% if active_page == 'achados' %}active{% endif %}">
+                <span class="nav-icon">&#9888;</span> Achados
+            </a></li>
+            <li><a href="/padroes" class="{% if active_page == 'padroes' %}active{% endif %}">
+                <span class="nav-icon">&#9733;</span> Padroes
+            </a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="api-status" id="apiStatus">
+                <span class="status-dot"></span>
+                <span>Verificando...</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="content-header">
+            <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+            <div class="header-actions">
+                {% block header_actions %}{% endblock %}
+            </div>
+        </header>
+        <div class="content-body">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

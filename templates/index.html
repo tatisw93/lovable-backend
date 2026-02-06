@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block header_actions %}
+<a href="/upload" class="btn btn-primary">&#8593; Upload de Documento</a>
+{% endblock %}
+
+{% block content %}
+<div class="cards-grid" id="statsCards">
+    <div class="card">
+        <div class="card-label">Documentos</div>
+        <div class="card-value" id="statDocs">-</div>
+        <div class="card-sub">processados</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Guias TISS</div>
+        <div class="card-value" id="statGuias">-</div>
+        <div class="card-sub">extraidas</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Achados</div>
+        <div class="card-value" id="statAchados">-</div>
+        <div class="card-sub">de auditoria</div>
+    </div>
+    <div class="card">
+        <div class="card-label">Agentes Ativos</div>
+        <div class="card-value" id="statAgentes">-</div>
+        <div class="card-sub">de analise</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <!-- Recent Documents -->
+    <div class="table-container">
+        <div class="table-header">
+            <h3>Documentos Recentes</h3>
+            <a href="/documentos" class="btn btn-sm">Ver todos</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Arquivo</th>
+                    <th>Tipo</th>
+                    <th>Status</th>
+                    <th>Data</th>
+                </tr>
+            </thead>
+            <tbody id="recentDocs">
+                <tr><td colspan="4" class="loading-overlay"><span class="spinner"></span> Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Recent Findings -->
+    <div class="table-container">
+        <div class="table-header">
+            <h3>Ultimos Achados</h3>
+            <a href="/achados" class="btn btn-sm">Ver todos</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Achado</th>
+                    <th>Nivel</th>
+                    <th>Conf.</th>
+                    <th>Impacto</th>
+                </tr>
+            </thead>
+            <tbody id="recentAchados">
+                <tr><td colspan="4" class="loading-overlay"><span class="spinner"></span> Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Agents Overview -->
+<div class="table-container" style="margin-top: 24px;">
+    <div class="table-header">
+        <h3>Agentes de Auditoria</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Agente</th>
+                <th>Nivel Primario</th>
+                <th>Versao</th>
+                <th>Descricao</th>
+            </tr>
+        </thead>
+        <tbody id="agentesTable">
+            <tr><td colspan="4" class="loading-overlay"><span class="spinner"></span> Carregando...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+    // Load stats
+    try {
+        const [docs, achados, agentes] = await Promise.all([
+            API.get('/api/v1/ingestao/documentos?por_pagina=5'),
+            API.get('/api/v1/analise/achados?por_pagina=5'),
+            API.get('/api/v1/agentes/')
+        ]);
+
+        document.getElementById('statDocs').textContent = docs.paginacao.total;
+        document.getElementById('statAchados').textContent = achados.paginacao.total;
+        document.getElementById('statAgentes').textContent = agentes.total_agentes;
+
+        // Count guias
+        let guiaCount = 0;
+        docs.documentos.forEach(d => guiaCount += (d.total_guias || 0));
+        document.getElementById('statGuias').textContent = docs.paginacao.total > 0 ? guiaCount + '+' : '0';
+
+        // Recent docs
+        const docsBody = document.getElementById('recentDocs');
+        if (docs.documentos.length === 0) {
+            docsBody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><h3>Nenhum documento</h3><p><a href="/upload">Faca o primeiro upload</a></p></div></td></tr>';
+        } else {
+            docsBody.innerHTML = docs.documentos.map(d => `
+                <tr>
+                    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.nome_arquivo}">${d.nome_arquivo}</td>
+                    <td><span class="badge badge-muted">${d.tipo_arquivo}</span></td>
+                    <td>${statusBadge(d.status)}</td>
+                    <td style="font-size:12px;color:var(--text-muted)">${formatDate(d.criado_em)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Recent achados
+        const achadosBody = document.getElementById('recentAchados');
+        if (achados.achados.length === 0) {
+            achadosBody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><p>Nenhum achado ainda</p></div></td></tr>';
+        } else {
+            achadosBody.innerHTML = achados.achados.map(a => `
+                <tr>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.achado.titulo}">${a.achado.titulo}</td>
+                    <td>${nivelBadge(a.classificacao.nivel)}</td>
+                    <td>${confiancaBadge(a.classificacao.confianca)}</td>
+                    <td class="achado-impact">${a.impacto_financeiro.valor_estimado ? formatMoney(a.impacto_financeiro.valor_estimado) : '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Agentes
+        const agBody = document.getElementById('agentesTable');
+        agBody.innerHTML = agentes.agentes.map(a => `
+            <tr>
+                <td><strong>${a.tipo}</strong></td>
+                <td>${nivelBadge(a.nivel_primario)}</td>
+                <td><span class="badge badge-muted">v${a.versao}</span></td>
+                <td style="font-size:13px;color:var(--text-muted);max-width:400px">${a.descricao}</td>
+            </tr>
+        `).join('');
+
+    } catch (err) {
+        console.error('Dashboard load error:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}

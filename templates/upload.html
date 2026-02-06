@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% set active_page = "upload" %}
+
+{% block title %}Upload{% endblock %}
+{% block page_title %}Upload de Documentos{% endblock %}
+
+{% block content %}
+<div class="upload-area" id="dropZone">
+    <div class="upload-icon">&#8593;</div>
+    <h3>Arraste arquivos aqui ou clique para selecionar</h3>
+    <p>O sistema processa e analisa automaticamente cada documento</p>
+    <div class="upload-formats">
+        <span class="format-badge">XML TISS</span>
+        <span class="format-badge">PDF</span>
+        <span class="format-badge">XLSX</span>
+        <span class="format-badge">CSV</span>
+        <span class="format-badge">TXT</span>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".xml,.pdf,.xlsx,.xls,.csv,.txt">
+</div>
+
+<div class="upload-queue" id="uploadQueue"></div>
+
+<!-- Results -->
+<div id="uploadResults" style="margin-top: 24px;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const queue = document.getElementById('uploadQueue');
+const results = document.getElementById('uploadResults');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', () => {
+    handleFiles(fileInput.files);
+    fileInput.value = '';
+});
+
+async function handleFiles(files) {
+    for (const file of files) {
+        await uploadFile(file);
+    }
+}
+
+async function uploadFile(file) {
+    const itemId = 'upload-' + Date.now() + Math.random().toString(36).slice(2);
+
+    queue.insertAdjacentHTML('afterbegin', `
+        <div class="upload-item" id="${itemId}">
+            <div class="upload-item-info">
+                <div class="upload-item-name">${file.name}</div>
+                <div class="upload-item-size">${formatBytes(file.size)}</div>
+                <div class="progress-bar"><div class="progress-bar-fill" style="width: 30%"></div></div>
+            </div>
+            <div class="upload-item-status processing">Processando...</div>
+        </div>
+    `);
+
+    try {
+        const { status, data } = await API.postFile('/api/v1/ingestao/upload', file);
+        const el = document.getElementById(itemId);
+        const statusEl = el.querySelector('.upload-item-status');
+        const progressFill = el.querySelector('.progress-bar-fill');
+        progressFill.style.width = '100%';
+
+        if (data.status === 'sucesso') {
+            statusEl.className = 'upload-item-status success';
+            statusEl.textContent = 'Concluido';
+            showResult(data, file.name);
+        } else if (data.status === 'duplicado') {
+            statusEl.className = 'upload-item-status duplicate';
+            statusEl.textContent = 'Duplicado';
+        } else {
+            statusEl.className = 'upload-item-status error';
+            statusEl.textContent = 'Erro';
+            if (data.erros) {
+                el.querySelector('.upload-item-size').textContent += ' | ' + data.erros.join('; ');
+            }
+        }
+    } catch (err) {
+        const el = document.getElementById(itemId);
+        if (el) {
+            el.querySelector('.upload-item-status').className = 'upload-item-status error';
+            el.querySelector('.upload-item-status').textContent = 'Falha na conexao';
+        }
+    }
+}
+
+function showResult(data, filename) {
+    const stats = data.estatisticas || {};
+    const alertas = data.alertas || [];
+    const erros = data.erros_validacao || [];
+    const enrichAlerts = data.alertas_enriquecimento || [];
+
+    let html = `
+        <div class="card" style="margin-bottom: 16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 style="font-size:16px;">${filename}</h3>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-sm" onclick="runAnalysis(${data.documento_id})">Executar Analise</button>
+                    <a href="/documentos" class="btn btn-sm">Ver Documentos</a>
+                </div>
+            </div>
+            <div class="cards-grid" style="margin-bottom:0;">
+                <div class="card">
+                    <div class="card-label">Guias</div>
+                    <div class="card-value">${stats.total_guias || 0}</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Procedimentos</div>
+                    <div class="card-value">${stats.total_procedimentos || 0}</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Glosas</div>
+                    <div class="card-value">${stats.total_glosas || 0}</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Alertas</div>
+                    <div class="card-value">${stats.total_alertas || 0}</div>
+                </div>
+            </div>
+    `;
+
+    if (alertas.length > 0) {
+        html += `<div style="margin-top:16px;"><h4 style="font-size:14px;margin-bottom:8px;color:var(--warning);">Alertas de Validacao (${alertas.length})</h4>`;
+        alertas.slice(0, 10).forEach(a => {
+            html += `<div style="font-size:13px;color:var(--text-muted);padding:6px 0;border-bottom:1px solid var(--border);">
+                <strong>${a.tipo || ''}</strong>: ${a.mensagem || JSON.stringify(a)}
+            </div>`;
+        });
+        if (alertas.length > 10) html += `<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">... e mais ${alertas.length - 10} alerta(s)</div>`;
+        html += '</div>';
+    }
+
+    html += '</div>';
+    results.insertAdjacentHTML('afterbegin', html);
+}
+
+async function runAnalysis(docId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Analisando...';
+
+    try {
+        const data = await API.post(`/api/v1/analise/documento/${docId}`);
+        btn.textContent = `${data.total_achados} achados`;
+        btn.className = 'btn btn-sm';
+
+        if (data.total_achados > 0) {
+            let achadosHtml = `<div class="table-container" style="margin-top:12px;">
+                <div class="table-header"><h3>Achados - Documento #${docId} (${data.total_achados})</h3></div>`;
+
+            data.achados.forEach(a => {
+                achadosHtml += `
+                    <div class="achado-card" style="margin:8px;border-radius:8px;">
+                        <div class="achado-header">
+                            <div class="achado-title">${a.titulo}</div>
+                            <div class="achado-badges">
+                                ${nivelBadge(a.nivel)}
+                                ${confiancaBadge(a.confianca)}
+                            </div>
+                        </div>
+                        <div class="achado-body">${a.descricao}</div>
+                        <div class="achado-meta">
+                            <span>Agente: <strong>${a.agente_tipo}</strong></span>
+                            ${a.regra_referencia ? `<span>Regra: <strong>${a.regra_referencia}</strong></span>` : ''}
+                            ${a.norma_ans ? `<span>ANS: <strong>${a.norma_ans}</strong></span>` : ''}
+                            ${a.impacto_valor ? `<span>Impacto: <strong class="achado-impact">${formatMoney(a.impacto_valor)}</strong></span>` : ''}
+                        </div>
+                        ${a.acao_recomendada ? `<div style="margin-top:8px;font-size:12px;color:var(--success);"><strong>Acao:</strong> ${a.acao_recomendada}</div>` : ''}
+                    </div>`;
+            });
+
+            achadosHtml += '</div>';
+            results.insertAdjacentHTML('afterbegin', achadosHtml);
+        }
+    } catch (err) {
+        btn.textContent = 'Erro na analise';
+        btn.className = 'btn btn-sm';
+        console.error(err);
+    }
+}
+</script>
+{% endblock %}

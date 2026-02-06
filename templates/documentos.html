@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% set active_page = "documentos" %}
+
+{% block title %}Documentos{% endblock %}
+{% block page_title %}Documentos Ingeridos{% endblock %}
+
+{% block header_actions %}
+<a href="/upload" class="btn btn-primary">&#8593; Novo Upload</a>
+{% endblock %}
+
+{% block content %}
+<div class="filters-bar">
+    <select class="filter-select" id="filterStatus" onchange="loadDocumentos()">
+        <option value="">Todos os status</option>
+        <option value="concluido">Concluido</option>
+        <option value="processando">Processando</option>
+        <option value="pendente">Pendente</option>
+        <option value="erro">Erro</option>
+    </select>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Arquivo</th>
+                <th>Tipo</th>
+                <th>Tamanho</th>
+                <th>Status</th>
+                <th>Guias</th>
+                <th>Data</th>
+                <th>Acoes</th>
+            </tr>
+        </thead>
+        <tbody id="docsTable">
+            <tr><td colspan="8" class="loading-overlay"><span class="spinner"></span> Carregando...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination" id="pagination"></div>
+
+<!-- Document Detail Modal -->
+<div id="docDetail" style="margin-top: 24px;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+
+async function loadDocumentos(page) {
+    currentPage = page || 1;
+    const status = document.getElementById('filterStatus').value;
+    let url = `/api/v1/ingestao/documentos?pagina=${currentPage}&por_pagina=15`;
+    if (status) url += `&status=${status}`;
+
+    try {
+        const data = await API.get(url);
+        const tbody = document.getElementById('docsTable');
+
+        if (data.documentos.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><h3>Nenhum documento encontrado</h3><p><a href="/upload">Faca o primeiro upload</a></p></div></td></tr>';
+        } else {
+            tbody.innerHTML = data.documentos.map(d => `
+                <tr>
+                    <td>#${d.id}</td>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.nome_arquivo}"><strong>${d.nome_arquivo}</strong></td>
+                    <td><span class="badge badge-muted">${d.tipo_arquivo.toUpperCase()}</span></td>
+                    <td>${formatBytes(d.tamanho_bytes)}</td>
+                    <td>${statusBadge(d.status)}</td>
+                    <td>${d.total_guias}</td>
+                    <td style="font-size:12px;color:var(--text-muted)">${formatDate(d.criado_em)}</td>
+                    <td>
+                        <button class="btn btn-sm" onclick="viewDoc(${d.id})">Detalhes</button>
+                        <button class="btn btn-sm btn-primary" onclick="analyzeDoc(${d.id}, this)">Analisar</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Pagination
+        const pag = data.paginacao;
+        const pagEl = document.getElementById('pagination');
+        pagEl.innerHTML = `
+            <button ${pag.pagina <= 1 ? 'disabled' : ''} onclick="loadDocumentos(${pag.pagina - 1})">&laquo; Anterior</button>
+            <span class="page-info">Pagina ${pag.pagina} de ${pag.paginas} (${pag.total} docs)</span>
+            <button ${pag.pagina >= pag.paginas ? 'disabled' : ''} onclick="loadDocumentos(${pag.pagina + 1})">Proxima &raquo;</button>
+        `;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function viewDoc(id) {
+    const detail = document.getElementById('docDetail');
+    detail.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Carregando detalhes...</div>';
+
+    try {
+        const data = await API.get(`/api/v1/ingestao/documentos/${id}`);
+
+        let html = `
+            <div class="card">
+                <h3 style="margin-bottom:16px;">Documento #${data.id}: ${data.nome_arquivo}</h3>
+                <div class="cards-grid">
+                    <div class="card"><div class="card-label">Tipo</div><div class="card-value" style="font-size:18px">${data.tipo_arquivo.toUpperCase()}</div></div>
+                    <div class="card"><div class="card-label">Tamanho</div><div class="card-value" style="font-size:18px">${formatBytes(data.tamanho_bytes)}</div></div>
+                    <div class="card"><div class="card-label">Status</div><div class="card-value" style="font-size:18px">${statusBadge(data.status)}</div></div>
+                    <div class="card"><div class="card-label">Guias</div><div class="card-value" style="font-size:18px">${data.guias.length}</div></div>
+                </div>`;
+
+        if (data.erro_processamento) {
+            html += `<div style="margin-top:12px;padding:12px;background:rgba(239,68,68,0.1);border-radius:8px;color:var(--danger);font-size:13px;"><strong>Erro:</strong> ${data.erro_processamento}</div>`;
+        }
+
+        if (data.guias.length > 0) {
+            html += `<table style="margin-top:16px;">
+                <thead><tr><th>Tipo</th><th>Numero</th><th>ANS</th><th>CID</th><th>Valor</th><th>Procs</th></tr></thead>
+                <tbody>`;
+            data.guias.forEach(g => {
+                html += `<tr>
+                    <td><span class="badge badge-primary">${g.tipo_guia}</span></td>
+                    <td>${g.numero_guia_prestador || '-'}</td>
+                    <td>${g.registro_ans || '-'}</td>
+                    <td>${g.cid_principal || '-'}</td>
+                    <td>${formatMoney(g.valor_total_informado)}</td>
+                    <td>${g.total_procedimentos}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+        }
+
+        html += '</div>';
+        detail.innerHTML = html;
+        detail.scrollIntoView({ behavior: 'smooth' });
+    } catch (err) {
+        detail.innerHTML = '<div class="empty-state"><p>Erro ao carregar detalhes</p></div>';
+    }
+}
+
+async function analyzeDoc(id, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Analisando...';
+    try {
+        const data = await API.post(`/api/v1/analise/documento/${id}`);
+        btn.textContent = `${data.total_achados} achados`;
+        if (data.total_achados > 0) {
+            window.location.href = `/achados?documento_id=${id}`;
+        }
+    } catch (err) {
+        btn.textContent = 'Erro';
+        btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadDocumentos(1));
+</script>
+{% endblock %}
