@@ -14,6 +14,6 @@ COPY . .
 ENV FLASK_ENV=production
 ENV PORT=5000
 
-EXPOSE 5000
+EXPOSE ${PORT}
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "--preload"]
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --preload
